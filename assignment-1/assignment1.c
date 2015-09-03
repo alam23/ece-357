@@ -22,7 +22,7 @@ int main (int argc, char **argv) {
 				buffer_size = optarg;
 				buf_size = strtol(buffer_size, NULL, 10);
 				if (!buf_size) {
-					printf("invalid buffer size\n");
+					fprintf(stderr, "invalid buffer size\n");
 					return -1;
 				}
 				break;
@@ -35,9 +35,9 @@ int main (int argc, char **argv) {
 	}
 	buf = malloc(buf_size);
 	if (out_file) {
-		fd_out = open(out_file, O_CREAT | O_WRONLY | O_TRUNC, 0777);
+		fd_out = open(out_file, O_CREAT | O_WRONLY | O_TRUNC, 0644);
 		if (fd_out == -1) {
-			printf("Error while opening '%s' for writing: %s\n", out_file, strerror(errno));
+			fprintf(stderr, "Error while opening '%s' for writing: %s\n", out_file, strerror(errno));
 			return -1;
 		}
 	}
@@ -50,19 +50,19 @@ int main (int argc, char **argv) {
 		if (strcmp(argv[i], "-") != 0) {
 			fd_in = open(argv[i], O_RDONLY);
 			if (fd_in == -1) {
-				printf("Error while opening '%s' for reading: %s\n", argv[i], strerror(errno));
+				fprintf(stderr, "Error while opening '%s' for reading: %s\n", argv[i], strerror(errno));
 				return -1;
 			}
 		}
 		do {
 			bytes_read = read(fd_in, buf, buf_size);
 			if (bytes_read < 0) {
-				printf("Error while reading '%s': %s\n", argv[i], strerror(errno));
+				fprintf(stderr, "Error while reading '%s': %s\n", argv[i], strerror(errno));
 				return -1;
 			}
 			if (bytes_read > 0) {
 				if (write(fd_out, buf, bytes_read) < 0) {
-					printf("Error while writing '%s': %s\n", out_file, strerror(errno));
+					fprintf(stderr, "Error while writing '%s': %s\n", out_file, strerror(errno));
 					return -1;
 				}
 			}
