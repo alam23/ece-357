@@ -61,9 +61,17 @@ int main (int argc, char **argv) {
 				return -1;
 			}
 			if (bytes_read > 0) {
-				if (write(fd_out, buf, bytes_read) < 0) {
-					fprintf(stderr, "Error while writing '%s': %s\n", out_file, strerror(errno));
-					return -1;
+				int res, size;
+				char *buf_write;
+				buf_write = buf;
+				size = bytes_read;
+				while (size > 0 && (res = write(fd_out, buf_write, size)) != size) {
+					if (res < 0) {
+						fprintf(stderr, "Error while writing '%s': %s\n", out_file, strerror(errno));
+						return -1;
+					}
+					size -= res;
+					buf += res;
 				}
 			}
 		} while (bytes_read != 0);
