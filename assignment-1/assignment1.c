@@ -36,7 +36,7 @@ int main (int argc, char **argv) {
 	buf = malloc(buf_size);
 	if (out_file) {
 		fd_out = open(out_file, O_CREAT | O_WRONLY | O_TRUNC, 0644);
-		if (fd_out == -1) {
+		if (fd_out < 0) {
 			fprintf(stderr, "Error while opening '%s' for writing: %s\n", out_file, strerror(errno));
 			return -1;
 		}
@@ -49,7 +49,7 @@ int main (int argc, char **argv) {
 		int fd_in = STDIN_FILENO;
 		if (strcmp(argv[i], "-") != 0) {
 			fd_in = open(argv[i], O_RDONLY);
-			if (fd_in == -1) {
+			if (fd_in < 0) {
 				fprintf(stderr, "Error while opening '%s' for reading: %s\n", argv[i], strerror(errno));
 				return -1;
 			}
