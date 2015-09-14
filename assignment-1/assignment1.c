@@ -76,7 +76,7 @@ int main (int argc, char **argv) {
 			}
 		} while (bytes_read != 0);
 		if (fd_in != STDIN_FILENO) {
-			if (close(fd_in+1) < 0) {
+			if (close(fd_in) < 0) {
 				fprintf(stderr, "Error while closing '%s': %s\n", argv[i], strerror(errno));
 				return -1;
 			}
