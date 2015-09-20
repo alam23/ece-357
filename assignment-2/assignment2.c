@@ -30,11 +30,12 @@ int printdirinfo(const char* path, int uid , int mtime) {
     d = opendir(path);
     if (d) {
         while ((dir = readdir(d)) != NULL) {
+            int print_node_info = 1;
             int new_path_len;
             char new_path[PATH_MAX];
             new_path_len = snprintf(new_path, PATH_MAX, "%s/%s", path, dir->d_name);
             if (new_path_len >= PATH_MAX)
-                return 0;
+                continue;
             struct stat s;
             lstat(new_path, &s);
             // -x parameter
@@ -60,107 +61,120 @@ int printdirinfo(const char* path, int uid , int mtime) {
                 continue;
             // -l parameter
             if (target_disk != -1) {
-                if (!S_ISLNK(s.st_mode))
-                    continue;
-                int link_len;
-                char link[PATH_MAX];
-                link_len = readlink(new_path, link, PATH_MAX);
-                if (link_len >= PATH_MAX)
-                    continue;
-                struct stat ls;
-                lstat(link, &ls);
-                if (target_disk != (long long)ls.st_dev || target_inode != (int)ls.st_ino)
-                    continue;
+                print_node_info = 0;
+                if (S_ISLNK(s.st_mode)) {
+                    int link_len;
+                    char link[PATH_MAX];
+                    link_len = readlink(new_path, link, PATH_MAX);
+                    if (link_len >= PATH_MAX)
+                        return 0;
+                    struct stat ls;
+                    // process relative links
+                    if (link[0] == '.') {
+                        int new_link_len;
+                        char new_link[PATH_MAX];
+                        new_link_len = snprintf(new_link, PATH_MAX, "%s/%s", path, link);
+                        if (new_link_len >= PATH_MAX)
+                            return 0;
+                        lstat(new_link, &ls);
+                    } else {
+                        lstat(link, &ls);
+                    }
+                    if (target_disk == (long long)ls.st_dev && target_inode == (int)ls.st_ino)
+                        print_node_info = 1;
+                }
             }
-            // FSID/Inode number
-            printf("%04llx/", (long long)s.st_dev);
-            printf("%d\t", (int)s.st_ino);
-            if ((int)s.st_ino < 1000)
-                printf("\t");
-            // Mask
-            if (S_ISDIR(s.st_mode)) printf("d");
-            else if (S_ISREG(s.st_mode)) printf("-");
-            else if (S_ISCHR(s.st_mode)) printf("c");
-            else if (S_ISBLK(s.st_mode)) printf("b");
-            else if (S_ISLNK(s.st_mode)) printf("l");
-            else if (S_ISFIFO(s.st_mode)) printf("p");
-            else if (S_ISSOCK(s.st_mode)) printf("s");
-            else {
-                fprintf(stderr, "\ninvalid file type\n");
-                continue;
+            if (print_node_info) {
+                // FSID/Inode number
+                printf("%04llx/", (long long)s.st_dev);
+                printf("%d\t", (int)s.st_ino);
+                if ((int)s.st_ino < 1000)
+                    printf("\t");
+                // Mask
+                if (S_ISDIR(s.st_mode)) printf("d");
+                else if (S_ISREG(s.st_mode)) printf("-");
+                else if (S_ISCHR(s.st_mode)) printf("c");
+                else if (S_ISBLK(s.st_mode)) printf("b");
+                else if (S_ISLNK(s.st_mode)) printf("l");
+                else if (S_ISFIFO(s.st_mode)) printf("p");
+                else if (S_ISSOCK(s.st_mode)) printf("s");
+                else {
+                    fprintf(stderr, "\ninvalid file type\n");
+                    continue;
+                }
+                printf((s.st_mode & S_IRUSR) ? "r" : "-");
+                printf((s.st_mode & S_IWUSR) ? "w" : "-");
+                if (s.st_mode & S_ISUID)
+                    if (s.st_mode & S_IXUSR)
+                        printf("s");
+                    else
+                        printf("S");
+                else
+                    if (s.st_mode & S_IXUSR)
+                        printf("x");
+                    else
+                        printf("-");
+                printf((s.st_mode & S_IRGRP) ? "r" : "-");
+                printf((s.st_mode & S_IWGRP) ? "w" : "-");
+                if (s.st_mode & S_ISGID)
+                    if (s.st_mode & S_IXGRP)
+                        printf("s");
+                    else
+                        printf("S");
+                else
+                    if (s.st_mode & S_IXGRP)
+                        printf("x");
+                    else
+                        printf("-");
+                printf((s.st_mode & S_IROTH) ? "r" : "-");
+                printf((s.st_mode & S_IWOTH) ? "w" : "-");
+                if (s.st_mode & S_ISVTX)
+                    if (s.st_mode & S_IXOTH)
+                        printf("t");
+                    else
+                        printf("T");
+                else
+                    if (s.st_mode & S_IXOTH)
+                        printf("x");
+                    else
+                        printf("-");
+                // Links
+                printf("\t%d", (int)s.st_nlink);
+                // Owner ID
+                struct passwd *p = getpwuid((int)s.st_uid);
+                printf("\t%s", p->pw_name);
+                // Group ID
+                struct group *g = getgrgid((int)s.st_gid);
+                printf("\t%s", g->gr_name);
+                // File size / device number
+                if (S_ISCHR(s.st_mode) || S_ISBLK(s.st_mode))
+                    printf("\t0x%x", (int)s.st_rdev);
+                else
+                    printf("\t%d", (int)s.st_size);
+                // Last edit time
+                char stime[PATH_MAX];
+                struct tm *ltime = localtime(&s.st_mtime);
+                strftime(stime, PATH_MAX, "%c", ltime);
+                printf("\t%s", stime);
+                // Filename
+                printf("\t%s", new_path);
+                // Links
+                if (S_ISLNK(s.st_mode)) {
+                    int link_len;
+                    char link[PATH_MAX];
+                    link_len = readlink(new_path, link, PATH_MAX);
+                    if (link_len >= PATH_MAX)
+                        return 0;
+                    printf(" -> %s", link);
+                }
+                printf("\n");
             }
-            printf((s.st_mode & S_IRUSR) ? "r" : "-");
-            printf((s.st_mode & S_IWUSR) ? "w" : "-");
-            if (s.st_mode & S_ISUID)
-                if (s.st_mode & S_IXUSR)
-                    printf("s");
-                else
-                    printf("S");
-            else
-                if (s.st_mode & S_IXUSR)
-                    printf("x");
-                else
-                    printf("-");
-            printf((s.st_mode & S_IRGRP) ? "r" : "-");
-            printf((s.st_mode & S_IWGRP) ? "w" : "-");
-            if (s.st_mode & S_ISGID)
-                if (s.st_mode & S_IXGRP)
-                    printf("s");
-                else
-                    printf("S");
-            else
-                if (s.st_mode & S_IXGRP)
-                    printf("x");
-                else
-                    printf("-");
-            printf((s.st_mode & S_IROTH) ? "r" : "-");
-            printf((s.st_mode & S_IWOTH) ? "w" : "-");
-            if (s.st_mode & S_ISVTX)
-                if (s.st_mode & S_IXOTH)
-                    printf("t");
-                else
-                    printf("T");
-            else
-                if (s.st_mode & S_IXOTH)
-                    printf("x");
-                else
-                    printf("-");
-            // Links
-            printf("\t%d", (int)s.st_nlink);
-            // Owner ID
-            struct passwd *p = getpwuid((int)s.st_uid);
-            printf("\t%s", p->pw_name);
-            // Group ID
-            struct group *g = getgrgid((int)s.st_gid);
-            printf("\t%s", g->gr_name);
-            // File size / device number
-            if (S_ISCHR(s.st_mode) || S_ISBLK(s.st_mode))
-                printf("\t0x%x", (int)s.st_rdev);
-            else
-                printf("\t%d", (int)s.st_size);
-            // Last edit time
-            char stime[PATH_MAX];
-            struct tm *ltime = localtime(&s.st_mtime);
-            strftime(stime, PATH_MAX, "%c", ltime);
-            printf("\t%s", stime);
-            // Filename
-            printf("\t%s", new_path);
-            // Links
-            if (S_ISLNK(s.st_mode)) {
-                int link_len;
-                char link[PATH_MAX];
-                link_len = readlink(new_path, link, PATH_MAX);
-                if (link_len >= PATH_MAX)
-                    return 0;
-                printf(" -> %s", link);
-            }
-            printf("\n");
             if (dir->d_type == DT_DIR) {
                 // Check to see if path already exists, if it does, make a sandwich and panic
                 struct visited_inode *current = stack;
                 while (current->active != 0) {
                     if (current->device_id == (long long)s.st_dev && current->inode == (int)s.st_ino) {
-                        // Loop detected! Trigger kernel panic!
+                        // Loop detected! Panic and return.
                         fprintf(stderr, "loop detected, paths: <%s>, <%s>\n", current->path, new_path);
                         return 1;
                     }
