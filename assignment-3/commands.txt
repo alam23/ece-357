@@ -1,0 +1,8 @@
+#!a.out
+./dummy.out parameter1 parameter2 parameter3 <input.txt >output.txt 2>error.txt
+./dummy.out p1 p2 p3 p4 p5 <input.txt >>output.txt 2>>error.txt
+./dummy.out param1 param2 param3 <input.txt
+./1.pl pp1 pp2 pp3
+cat input.txt
+cat output.txt
+cat error.txt
