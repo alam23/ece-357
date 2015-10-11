@@ -35,7 +35,7 @@ int main (int argc, char **argv) {
 	}
 	buf = malloc(buf_size);
 	if (out_file) {
-		fd_out = open(out_file, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+		fd_out = open(out_file, O_CREAT | O_WRONLY | O_TRUNC, 0666);
 		if (fd_out < 0) {
 			fprintf(stderr, "Error while opening '%s' for writing: %s\n", out_file, strerror(errno));
 			return -1;
@@ -43,7 +43,7 @@ int main (int argc, char **argv) {
 	}
 	if (optind == argc) {
 		optind--;
-		strcpy(argv[optind], "-");
+		argv[optind] = "-";
 	}
 	for (int i = optind; i < argc; i++) {
 		int fd_in = STDIN_FILENO;
@@ -82,7 +82,10 @@ int main (int argc, char **argv) {
 			}
 		}
 	}
-	close(fd_out);
+	if (close(fd_out) < 0) {
+		fprintf(stderr, "Error while closing fd_out: %s\n", strerror(errno));
+		return -1;
+	}
 	free(buf);
 	return 0;
 }
