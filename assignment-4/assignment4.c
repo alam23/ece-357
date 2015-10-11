@@ -34,7 +34,7 @@ void int_handler(int signo) {
 		} else {
 			fprintf(stderr, "Error while getting terminal attributes: %s\n", strerror(errno));
 		}
-		printf("\nFiles Processed: %d, Bytes Processed: %d!\n", dwFilesProcessed, dwBytesProcessed);
+		fprintf(stderr, "\nFiles Processed: %d, Bytes Processed: %d!\n", dwFilesProcessed, dwBytesProcessed);
 		exit(1);
 	}
 }
