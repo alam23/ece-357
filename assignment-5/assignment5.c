@@ -93,6 +93,7 @@ int main(int argc, char **argv) {
 			return -1;
 		}
 		map[1] = 1;
+		printf("No Signal Sent!\n");
 		eclose(fd);
 		exit(0);
 	}
@@ -114,16 +115,16 @@ int main(int argc, char **argv) {
 		elseek(fd, 0, SEEK_SET);
 		if (read(fd, &rd_b, 1) < 0)
 			fprintf(stderr, "Error while reading: %s\n", strerror(errno));
-		printf("Before: 0x%1x\n", (unsigned char)rd_b);
+		printf("Before: 0x%2x\n", (unsigned char)rd_b);
 		map[0]++;
 		elseek(fd, 0, SEEK_SET);
 		if (read(fd, &rd_a, 1) < 0)
 			fprintf(stderr, "Error while reading: %s\n", strerror(errno));
 		printf("After: 0x%2x\n", (unsigned char)rd_a);
 		if (rd_b == rd_a)
-			printf("They Are The Same.\n");
+			printf("Update is not visible.\n");
 		else
-			printf("They Are Different.\n");
+			printf("Update is visible.\n");
 		eclose(fd);
 		exit(0);
 	}
@@ -142,19 +143,19 @@ int main(int argc, char **argv) {
 			return -1;
 		}
 		char rd_b, rd_a;
-		if (lseek(fd, 0, SEEK_SET) < 0)
-			fprintf(stderr, "Failed to seek: %s\n", strerror(errno));
+		elseek(fd, 0, SEEK_SET);
 		if (read(fd, &rd_b, 1) < 0)
 			fprintf(stderr, "Failed to read: %s\n", strerror(errno));
-		printf("Before: 0x%1x\n", (unsigned char)rd_b);
+		printf("Before: 0x%2x\n", (unsigned char)rd_b);
 		map[0]++;
-		lseek(fd, 0, SEEK_SET);
-		read(fd, &rd_a, 1);
+		elseek(fd, 0, SEEK_SET);
+		if (read(fd, &rd_a, 1) < 0)
+			fprintf(stderr, "Failed to read: %s\n", strerror(errno));
 		printf("After: 0x%2x\n", (unsigned char)rd_a);
 		if (rd_b == rd_a)
-			printf("They Are The Same.\n");
+			printf("Update is not visible.\n");
 		else
-			printf("They Are Different.\n");
+			printf("Update is visible.\n");
 		eclose(fd);
 		exit(0);
 	}
@@ -190,27 +191,30 @@ int main(int argc, char **argv) {
 		fs_a = sb.st_size;
 		printf("File Size: %d\n", fs_a);
 		if (fs_b == fs_a)
-			// THIS IS CUZ WHEN U MMAP THE SYSTEM THINGY NOES THAT U GO UP TO 8195 SO IT DOESN'T RLY CARE IF U GO BEYOND THAT BOUNDARY. LIEK IT'S NOT GUNNA KNOW IF U WRITE OUTSIDE IT CUZ IT DUN CARE.
-			printf("They Are The Same.\n");
+			// THIS IS CUZ WHEN U MMAP THE SYSTEM THINGY NOES THAT U GO UP TO 8195 SO IT DOESN'T RLY CARE IF U GO BEYOND THAT BOUNDARY. LIEK IT'S NOT GUNNA KNOW IF U WRITE OUTSIDE IT CUZ ITS NOT MAPPED SO IT DUN CARE.
+			printf("File size is the same.\n");
 		else
-			printf("They Are Different.\n");
+			printf("File size is different.\n");
 		printf("Part E\n");
-		lseek(fd, 8197, SEEK_SET);
+		elseek(fd, 8197, SEEK_SET);
 		char wt = 0xFF;
-		write(fd, &wt, 1);
-		lseek(fd, 8196, SEEK_SET);
+		if (write(fd, &wt, 1) < 0)
+			fprintf(stderr, "Failed to write: %s\n", strerror(errno));
+		elseek(fd, 8196, SEEK_SET);
 		char rd;
-		read(fd, &rd, 1);
-		printf("Read Data: 0x%1x\n", (unsigned char)rd);
+		if (read(fd, &rd, 1) < 0)
+			fprintf(stderr, "Failed to read: %s\n", strerror(errno));
+		printf("Read Data: 0x%2x\n", (unsigned char)rd);
 		if (rd == 0x37)
 			printf("Data In The Hole Has Been Saved.\n");
 		else
 			// The data in the hole seems to have been overwritten by a 0 and it is not visible in the file
-			printf("Data In The Hole Is Lost.\n");
+			printf("Data In The Hole Is Lost And Replaced With 0x%2x.\n", rd);
 		eclose(fd);
 		exit(0);
 	}
 	// Part F1, F2
+	// You can establish the mmap (it returns no error) but it causes issues on page faults.
 	// You get bus error on the second page because the kernel can't satisfy the page fault when I try accessing it.
 	// Accessing the same page is ok because it's still within the boundaries.
 	if (argv[1][0] == 'F' && argv[1][1] == '1') {
