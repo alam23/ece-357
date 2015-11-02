@@ -115,12 +115,12 @@ int main(int argc, char **argv) {
 		elseek(fd, 0, SEEK_SET);
 		if (read(fd, &rd_b, 1) < 0)
 			fprintf(stderr, "Error while reading: %s\n", strerror(errno));
-		printf("Before: 0x%2x\n", (unsigned char)rd_b);
+		printf("Before: 0x%02x\n", (unsigned char)rd_b);
 		map[0]++;
 		elseek(fd, 0, SEEK_SET);
 		if (read(fd, &rd_a, 1) < 0)
 			fprintf(stderr, "Error while reading: %s\n", strerror(errno));
-		printf("After: 0x%2x\n", (unsigned char)rd_a);
+		printf("After: 0x%02x\n", (unsigned char)rd_a);
 		if (rd_b == rd_a)
 			printf("Update is not visible.\n");
 		else
@@ -146,12 +146,12 @@ int main(int argc, char **argv) {
 		elseek(fd, 0, SEEK_SET);
 		if (read(fd, &rd_b, 1) < 0)
 			fprintf(stderr, "Failed to read: %s\n", strerror(errno));
-		printf("Before: 0x%2x\n", (unsigned char)rd_b);
+		printf("Before: 0x%02x\n", (unsigned char)rd_b);
 		map[0]++;
 		elseek(fd, 0, SEEK_SET);
 		if (read(fd, &rd_a, 1) < 0)
 			fprintf(stderr, "Failed to read: %s\n", strerror(errno));
-		printf("After: 0x%2x\n", (unsigned char)rd_a);
+		printf("After: 0x%02x\n", (unsigned char)rd_a);
 		if (rd_b == rd_a)
 			printf("Update is not visible.\n");
 		else
@@ -182,7 +182,7 @@ int main(int argc, char **argv) {
 		}
 		fs_b = sb.st_size;
 		printf("File Size: %d\n", fs_b);
-		map[8195] = 0x37;
+		map[8196] = 0x37;
 		if (stat("file_8195.txt", &sb) < 0) {
 			fprintf(stderr, "Error calling stat: %s\n", strerror(errno));
 			eclose(fd);
@@ -204,12 +204,12 @@ int main(int argc, char **argv) {
 		char rd;
 		if (read(fd, &rd, 1) < 0)
 			fprintf(stderr, "Failed to read: %s\n", strerror(errno));
-		printf("Read Data: 0x%2x\n", (unsigned char)rd);
+		printf("Read Data: 0x%02x\n", (unsigned char)rd);
 		if (rd == 0x37)
+			// The data is saved because it was on the page that it was mapped on and since the size of the file is extended, it is written to file
 			printf("Data In The Hole Has Been Saved.\n");
 		else
-			// The data in the hole seems to have been overwritten by a 0 and it is not visible in the file
-			printf("Data In The Hole Is Lost And Replaced With 0x%2x.\n", rd);
+			printf("Data In The Hole Is Lost And Replaced With 0x%02x.\n", (unsigned char)rd);
 		eclose(fd);
 		exit(0);
 	}
