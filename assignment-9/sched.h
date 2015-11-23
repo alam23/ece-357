@@ -8,7 +8,6 @@
 #include <sys/time.h>
 #include <sys/mman.h>
 
-#include "list.h"
 #include "savectx.h"
 
 #define SCHED_NPROC 256

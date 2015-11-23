@@ -1,17 +1,37 @@
 #include "sched.h"
 
+int NEED_RESCHED = 0;
+
+void sched_initializetask(int pid, int ppid);
 int sched_createtask(int ppid);
+void sched_destroytask(int pid);
+void adjstack(void *lim0,void *lim1,unsigned long adj);
+
 void sched_switch(int state);
 void sched_queue(sched_proc *process, int status);
 sched_proc* sched_dequeue();
-void adjstack(void *lim0,void *lim1,unsigned long adj);
+
+void idle() {
+	while(1);
+}
+
+void sched_int(int signum) {
+	sched_ps();
+	exit(0);
+}
 
 int sched_init(void (*init_fn)()) {
+	// Allocate active and expired queues
 	active = (sched_waitq*)malloc(sizeof(sched_waitq));
+	if (active == NULL)
+		perror("active malloc failed");
 	memset(active, 0, sizeof(sched_waitq));
 	expired = (sched_waitq*)malloc(sizeof(sched_waitq));
+	if (expired == NULL)
+		perror("expired malloc failed");
 	memset(expired, 0, sizeof(sched_waitq));
 	for (int i = 0; i < 140; i++) {
+		// Too lazy to handle null cases, thus the first element is always a dummy
 		active->first[i] = malloc(sizeof(sched_proc));
 		memset(active->first[i], 0, sizeof(sched_proc));
 		active->last[i] = active->first[i];
@@ -19,37 +39,54 @@ int sched_init(void (*init_fn)()) {
 		memset(expired->first[i], 0, sizeof(sched_proc));
 		expired->last[i] = expired->first[i];
 	}
-	// Start tick
+	// Start alarm
 	struct itimerval new;
 	new.it_interval.tv_usec = 1000;
 	new.it_interval.tv_sec = 0;
 	new.it_value.tv_usec = 1000;
 	new.it_value.tv_sec = 0;
 	signal(SIGVTALRM, &sched_tick);
-	if (setitimer(ITIMER_VIRTUAL, &new, NULL) < 0)
+	signal(SIGABRT, &sched_int);
+	signal(SIGINT, &sched_int);
+	if (setitimer(ITIMER_VIRTUAL, &new, NULL) < 0) {
+		perror("setitimer failed");
 		return 0;
-	// Create task 1 and jump to it
+	}
+	// Initialize idle task
+	sched_initializetask(0, 0);
+	tasks[0].ctx.regs[JB_SP] = tasks[0].stack;
+    tasks[0].ctx.regs[JB_PC] = idle;
+	// Create task 1, set as current task, and jump to it
 	int init = sched_createtask(0);
 	struct savectx initctx;
-    initctx.regs[JB_SP] = tasks[init].stack;    
-    initctx.regs[JB_PC] = init_fn;  
+    initctx.regs[JB_SP] = tasks[init].stack;
+    initctx.regs[JB_PC] = init_fn;
     current = &tasks[init];
     restorectx(&initctx, 0);
 }
 
 int sched_fork() {
+	sigset_t block;
+	sigfillset(&block);
+	sigprocmask(SIG_BLOCK, &block, NULL);
 	int newpid = sched_createtask(current->pid);
-	int retcode = newpid;
+	int return_value = newpid;
 	sched_proc *newproc = &tasks[newpid];
+	// Inherit priority
+	newproc->priority = current->priority;
+	// Copy and fix stack
 	memcpy(newproc->stack - STACK_SIZE, current->stack - STACK_SIZE, STACK_SIZE);
 	adjstack(newproc->stack - STACK_SIZE, newproc->stack, newproc->stack - current->stack);
 	sched_queue(newproc, SCHED_READY);
 	if (savectx(&newproc->ctx)) {
-		retcode = 0;
-	}
-	newproc->ctx.regs[JB_BP] += newproc->stack - current->stack;
-    newproc->ctx.regs[JB_SP] += newproc->stack - current->stack;  
-	return retcode;
+		return_value = 0;
+	} else {
+		// Fix base and stack pointers
+		newproc->ctx.regs[JB_BP] += newproc->stack - current->stack;
+    	newproc->ctx.regs[JB_SP] += newproc->stack - current->stack;
+    }
+    sigprocmask(SIG_UNBLOCK, &block, NULL);
+	return return_value;
 }
 
 void sched_exit(int code) {
@@ -59,6 +96,7 @@ void sched_exit(int code) {
 	// Increase cpu time since we are switching
 	(current->cputime)++;
 	current->exitcode = code;
+	// Mark sleeping parents as ready
 	struct sched_proc *cur, *prev, *next;
 	for (int i = 0; i < 140; i++) {
 		if (active->count[i] == 0)
@@ -87,7 +125,7 @@ int sched_wait(int *exit_code) {
 	sigprocmask(SIG_BLOCK, &block, NULL);
 	// Increase cpu time since we are switching
 	(current->cputime)++;
-	// Find a zombie and return OR go to bed
+	// Find a zombie and return OR go back to sleep
 	int childleft;
 	struct sched_proc *cur, *prev, *next;
 	do {
@@ -109,6 +147,7 @@ int sched_wait(int *exit_code) {
 						active->last[i] = prev;
 					active->count[i]--;
 					*exit_code = cur->exitcode;
+					sched_destroytask(cur->pid);
 					sigprocmask(SIG_UNBLOCK, &block, NULL);
 					return 0;
 				}
@@ -131,6 +170,7 @@ int sched_wait(int *exit_code) {
 						expired->last[i] = prev;
 					expired->count[i]--;
 					*exit_code = cur->exitcode;
+					sched_destroytask(cur->pid);
 					sigprocmask(SIG_UNBLOCK, &block, NULL);
 					return 0;
 				}
@@ -153,8 +193,7 @@ void sched_nice(int niceval) {
 		niceval = -20;
 	if (niceval > 19)
 		niceval = 19;
-	if (current->priority < 120 + niceval)
-		current->priority = 120 + niceval;
+	current->priority = 120 + niceval;
 }
 
 int sched_getpid() {
@@ -177,48 +216,65 @@ int min(int i1, int i2) {
 }
 
 void sched_ps() {
-	printf("PID\tPPID\tSTATE\tSTACK\t\tPRIORITY\tDYNAMIC\tTICKS\n");
+	printf("PID\tPPID\tSTATE\t\tSTACK\t\tPRIORITY\tDYNAMIC\tTICKS\n");
 	for (int i = 1; i < SCHED_NPROC; i++) {
 		if (tasks[i].status != SCHED_NONE) {
 			printf("%d\t", tasks[i].pid);
 			printf("%d\t", tasks[i].ppid);
-			printf("%d\t", tasks[i].status);
+			switch (tasks[i].status) {
+				case SCHED_READY:
+					printf("READY\t\t");
+					break;
+				case SCHED_RUNNING:
+					printf("RUNNING\t\t");
+					break;
+				case SCHED_SLEEPING:
+					printf("SLEEPING\t");
+					break;
+				case SCHED_ZOMBIE:
+					printf("ZOMBIE\t\t");
+					break;
+			}
 			printf("%p\t", tasks[i].stack);
 			printf("%d\t\t", tasks[i].priority);
-			printf("%d\t", tasks[i].priority - min(tasks[i].bonus, 10));
+			printf("%d\t", tasks[i].priority - min(tasks[i].bonus / 4, 10));
 			printf("%d\n", tasks[i].cputime);
 		}
 	}
 }
 
 void sched_switch(int state) {
-	//printf("Task Switch From Process(State: %d): PID: %d\n", state, current->pid);
-	// Switch out current process
+	sigset_t block;
+	sigfillset(&block);
+	// Queue current process
 	if (current != NULL)
 		sched_queue(current, state);
-	// Get best process to switch in
+	// Find best process from active queue
 	sched_proc *best = sched_dequeue();
 	if (best == NULL) {
+		// All out of active processes, so flip queues
 		sched_waitq *swap;
 		swap = active;
 		active = expired;
 		expired = swap;
 		best = sched_dequeue();
 		if (best == NULL) {
+			// Processor is idle
 			// Don't look at this part. Idk how to handle idle process so ima just exit the program :D
-			current = NULL;
-			exit(0);
+			current = &tasks[0];
+			sigprocmask(SIG_UNBLOCK, &block, NULL);
+			restorectx(&current->ctx, 1);
 			return;
 		}
 	}
 	current = best;
-	//printf("Task Switching To PID: %d\n", current->pid);
+	current->status = SCHED_RUNNING;
+	// Allocate quantum
 	if (current->priority < 120)
 		current->quantum = (140 - current->priority) * 20;
 	else
 		current->quantum = (140 - current->priority) * 5;
-	sigset_t block;
-	sigfillset(&block);
+	// Start execution
 	sigprocmask(SIG_UNBLOCK, &block, NULL);
 	restorectx(&current->ctx, 1);
 }
@@ -227,11 +283,17 @@ void sched_tick(int signum) {
 	sigset_t block;
 	sigfillset(&block);
 	sigprocmask(SIG_BLOCK, &block, NULL);
+	// Increase bonus for every tick spent not executing
 	for (int i = 1; i < SCHED_NPROC; i++)
 		tasks[i].bonus++;
 	if (current != NULL) {
 		(current->cputime)++;
 		(current->quantum)--;
+		// Reschedule Flag
+		if (NEED_RESCHED) {
+			NEED_RESCHED = 0;
+			current->quantum = 0;
+		}
 		if (current->quantum <= 0) {
 			// Save context
 			if (savectx(&current->ctx)) {
@@ -246,9 +308,9 @@ void sched_tick(int signum) {
 
 void sched_queue(sched_proc *process, int status) {
 	// Generate dynamic priority
-	int priority = process->priority - min(process->bonus, 10);
+	int priority = process->priority - min(process->bonus / 4, 10);
 	process->bonus = 0;
-
+	// Jank double linked list implementation
 	process->next = NULL;
 	process->status = status;
 	expired->count[priority]++;
@@ -282,18 +344,22 @@ sched_proc* sched_dequeue() {
 	return NULL;
 }
 
+void sched_initializetask(int pid, int ppid) {
+	tasks[pid].status = SCHED_READY;
+	tasks[pid].pid = pid;
+	tasks[pid].ppid = ppid;
+	tasks[pid].priority = 120;
+	tasks[pid].cputime = 0;
+	tasks[pid].stack = mmap(0, STACK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+	if (tasks[pid].stack == MAP_FAILED)
+		perror("mmap failed");
+	tasks[pid].stack += STACK_SIZE;
+}
+
 int sched_createtask(int ppid) {
 	for (int i = 1; i < SCHED_NPROC; i++) {
 		if (tasks[i].status == SCHED_NONE) {
-			tasks[i].status = SCHED_READY;
-			tasks[i].pid = i;
-			tasks[i].ppid = ppid;
-			tasks[i].priority = 120;
-			tasks[i].cputime = 0;
-			tasks[i].stack = mmap(0, STACK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
-			if (tasks[i].stack == MAP_FAILED)
-				perror("mmap failed");
-			tasks[i].stack += STACK_SIZE;
+			sched_initializetask(i, ppid);
 			return i;
 		}
 	}
@@ -301,5 +367,6 @@ int sched_createtask(int ppid) {
 
 void sched_destroytask(int pid) {
 	tasks[pid].status = SCHED_NONE;
-	munmap(tasks[pid].stack, STACK_SIZE);
+	if (munmap(tasks[pid].stack - STACK_SIZE, STACK_SIZE) < 0)
+		perror("munmap failed");
 }
