@@ -188,6 +188,46 @@ int sched_wait(int *exit_code) {
 	return -1;
 }
 
+void sched_sleep(struct sched_waitq1 *waitq) {
+	for (int i = 0; i < 140; i++) {
+		if (waitq->id[i] == 0) {
+			waitq->id[i] = current->pid;
+			break;
+		}
+	}
+	sigset_t block;
+	sigfillset(&block);
+	sigprocmask(SIG_BLOCK, &block, NULL);
+	// Increase cpu time since we are switching
+	(current->cputime)++;
+	current->wait = waitq;
+	// Schedule
+	if (!savectx(&current->ctx)) {
+		sigprocmask(SIG_UNBLOCK, &block, NULL);
+		sched_switch(SCHED_SLEEPING);
+	}
+}
+
+void sched_wakeup(struct sched_waitq1 *waitq) {
+	for (int i = 0; i < 140; i++) {
+		if (waitq->id[i] != 0) {
+			tasks[waitq->id[i]].status = SCHED_READY;
+			tasks[waitq->id[i]].wait = NULL;
+			waitq->id[i] = 0;
+		}
+	}
+	sigset_t block;
+	sigfillset(&block);
+	sigprocmask(SIG_BLOCK, &block, NULL);
+	// Increase cpu time since we are switching
+	(current->cputime)++;
+	// Schedule
+	if (!savectx(&current->ctx)) {
+		sigprocmask(SIG_UNBLOCK, &block, NULL);
+		sched_switch(SCHED_READY);
+	}
+}
+
 void sched_nice(int niceval) {
 	if (niceval < -20)
 		niceval = -20;
@@ -216,7 +256,7 @@ int min(int i1, int i2) {
 }
 
 void sched_ps() {
-	printf("PID\tPPID\tSTATE\t\tSTACK\t\tPRIORITY\tDYNAMIC\tTICKS\n");
+	printf("PID\tPPID\tSTATE\t\tSTACK\t\tWAIT\t\tPRIORITY\tDYNAMIC\tTICKS\n");
 	for (int i = 1; i < SCHED_NPROC; i++) {
 		if (tasks[i].status != SCHED_NONE) {
 			printf("%d\t", tasks[i].pid);
@@ -236,8 +276,12 @@ void sched_ps() {
 					break;
 			}
 			printf("%p\t", tasks[i].stack);
+			if (tasks[i].status == SCHED_SLEEPING && tasks[i].wait != 0)
+				printf("%p\t", tasks[i].wait);
+			else
+				printf("\t\t");
 			printf("%d\t\t", tasks[i].priority);
-			printf("%d\t", tasks[i].priority - min(tasks[i].bonus / 4, 10));
+			printf("%d\t", tasks[i].priority - min(tasks[i].bonus / 500, 10));
 			printf("%d\n", tasks[i].cputime);
 		}
 	}
@@ -247,7 +291,7 @@ void sched_switch(int state) {
 	sigset_t block;
 	sigfillset(&block);
 	// Queue current process
-	if (current != NULL)
+	if (current != NULL && current->pid != 0)
 		sched_queue(current, state);
 	// Find best process from active queue
 	sched_proc *best = sched_dequeue();
@@ -259,8 +303,7 @@ void sched_switch(int state) {
 		expired = swap;
 		best = sched_dequeue();
 		if (best == NULL) {
-			// Processor is idle
-			// Don't look at this part. Idk how to handle idle process so ima just exit the program :D
+			// Processor is idle, restore the idle task
 			current = &tasks[0];
 			sigprocmask(SIG_UNBLOCK, &block, NULL);
 			restorectx(&current->ctx, 1);
@@ -269,11 +312,11 @@ void sched_switch(int state) {
 	}
 	current = best;
 	current->status = SCHED_RUNNING;
-	// Allocate quantum
-	if (current->priority < 120)
-		current->quantum = (140 - current->priority) * 20;
+	// Allocate quantum (slightly different than linux kernel)
+	if (current->dynamic < 120)
+		current->quantum = (140 - current->dynamic) * 5;
 	else
-		current->quantum = (140 - current->priority) * 5;
+		current->quantum = (140 - current->dynamic);
 	// Start execution
 	sigprocmask(SIG_UNBLOCK, &block, NULL);
 	restorectx(&current->ctx, 1);
@@ -308,7 +351,7 @@ void sched_tick(int signum) {
 
 void sched_queue(sched_proc *process, int status) {
 	// Generate dynamic priority
-	int priority = process->priority - min(process->bonus / 4, 10);
+	int priority = process->priority - min(process->bonus / 500, 10);
 	process->bonus = 0;
 	// Jank double linked list implementation
 	process->next = NULL;
@@ -337,6 +380,7 @@ sched_proc* sched_dequeue() {
 				else
 					active->last[i] = prev;
 				active->count[i]--;
+				cur->dynamic = i;
 				return cur;
 			}
 		}

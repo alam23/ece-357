@@ -27,10 +27,12 @@ struct sched_proc {
 	int ppid; // Parent task id
 	int exitcode; // Exit code
 	int priority; // 0-139 Priority
+	int dynamic; // Not important
 	int quantum; // Quantum remaining
 	int bonus; // CPU time spent sleeping
 	int cputime; // Total CPU time consumed
 	void *stack; // Task stack
+	void *wait; // Wait Queue Location
 	struct savectx ctx; // Task context
 };
 
@@ -40,6 +42,10 @@ struct sched_waitq {
 	int count[140];
 	sched_proc *first[140];
 	sched_proc *last[140];
+};
+
+struct sched_waitq1 { // Going full ghetto and just keep 140 ids
+	int id[140];
 };
 
 sched_proc *current;
@@ -57,3 +63,5 @@ int sched_fork();
 void sched_nice(int niceval);
 int sched_wait(int *exit_code);
 void sched_ps();
+void sched_sleep(struct sched_waitq1 *waitq);
+void sched_wakeup(struct sched_waitq1 *waitq);
